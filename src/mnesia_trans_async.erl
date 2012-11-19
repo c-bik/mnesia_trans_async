@@ -7,16 +7,28 @@
 %% Application callbacks
 %% ===================================================================
 
-start() -> application:start(mnesia_trans_async).
-
-stop()  -> application:stop(mnesia_trans_async).
-
 setup(RowCount) ->
     {atomic, ok} = mnesia:create_table(table, [{attributes, [col1, col2, col3]}]),
     _ = [mnesia:dirty_write({table, R, R+1, R+2}) || R <- lists:seq(1,RowCount)],
     ok.
 
-recv_async(Limit, Delay) ->
+-define(ROWCOUNT, 100).
+-define(THREAD_A_DELAY, 100).
+-define(THREAD_B_DELAY, 200).
+-define(THREAD_A_CHUNK, 10).
+-define(THREAD_B_CHUNK, 20).
+
+run_test() ->
+    mnesia:stop(),
+    mnesia:start(),
+    setup(?ROWCOUNT),
+    recv_async("_A_", ?THREAD_A_CHUNK, ?THREAD_A_DELAY),
+    recv_async("_B_", ?THREAD_B_CHUNK, ?THREAD_B_DELAY),
+    TotalDelay = round(?ROWCOUNT / ?THREAD_A_CHUNK * ?THREAD_A_DELAY + ?ROWCOUNT / ?THREAD_B_CHUNK * ?THREAD_B_DELAY),
+    io:format("waiting... ~p~n", [TotalDelay]),
+    timer:sleep(TotalDelay).
+
+recv_async(Title, Limit, Delay) ->
     F0 = fun() ->
         Pid = start_trans(self(), Limit),
         F = fun(F) ->
@@ -25,7 +37,7 @@ recv_async(Limit, Delay) ->
                 eot ->
                     io:format("finished~n", []);
                 {row, Row} ->
-                    io:format("got rows ~p~n", [Row]),
+                    io:format("[~p] got rows ~p~n", [Title, length(Row)]),
                     timer:sleep(Delay),
                     F(F)
             end
